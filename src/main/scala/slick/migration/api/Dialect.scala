@@ -1,4 +1,4 @@
-package scala.slick
+package slick
 package migration.api
 
 import driver._

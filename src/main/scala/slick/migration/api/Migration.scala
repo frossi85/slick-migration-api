@@ -1,7 +1,7 @@
-package scala.slick
+package slick
 package migration.api
 
-import scala.slick.jdbc.JdbcBackend
+import slick.jdbc.JdbcBackend
 
 /**
  * The base of the migration type hierarchy.

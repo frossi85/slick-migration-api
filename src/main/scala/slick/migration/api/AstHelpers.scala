@@ -1,9 +1,10 @@
-package scala.slick
+package slick
 package migration.api
 
-import scala.slick.ast.{ ColumnOption, FieldSymbol, Node, Select, TableNode }
-import scala.slick.lifted.{ Column, Index }
-import scala.slick.driver.JdbcDriver
+import slick.ast.{ ColumnOption, FieldSymbol, Node, Select, TableNode }
+import slick.profile.{SqlProfile, RelationalProfile}
+import slick.lifted.{ Rep, Index }
+import slick.driver.JdbcDriver
 
 /**
  * Internal lightweight data structure, containing
@@ -11,7 +12,7 @@ import scala.slick.driver.JdbcDriver
  * @param schemaName the name of the database schema (namespace) the table is in, if any
  * @param tableName the name of the table itself
  */
-private[api] case class TableInfo(schemaName: Option[String], tableName: String)
+case class TableInfo(schemaName: Option[String], tableName: String)
 
 /**
  * Internal lightweight data structure, containing
@@ -25,7 +26,7 @@ private[api] case class TableInfo(schemaName: Option[String], tableName: String)
  * @param default An `Option`al default value, in the database's SQL syntax.
                   Corresponds to `O.Default`
  */
-private[api] case class ColumnInfo(name: String, sqlType: String, notNull: Boolean, autoInc: Boolean, isPk: Boolean, default: Option[String])
+case class ColumnInfo(name: String, sqlType: String, notNull: Boolean, autoInc: Boolean, isPk: Boolean, default: Option[String])
 
 /**
  * Internal lightweight data structure, containing
@@ -35,12 +36,12 @@ private[api] case class ColumnInfo(name: String, sqlType: String, notNull: Boole
  * @param unique Whether the column can contain duplicates
  * @param columns The columns that this index applies to, as `scala.slick.ast.FieldSymbol`
  */
-private[api] case class IndexInfo(table: TableNode, name: String, unique: Boolean, columns: Seq[FieldSymbol])
+case class IndexInfo(table: TableNode, name: String, unique: Boolean, columns: Seq[FieldSymbol])
 
 /**
  * Helper trait for converting various representations of tables, columns, and indexes
  */
-private[api] trait AstHelpers {
+trait AstHelpers {
   /**
    * @param table a Slick table object whose qualified name is needed
    * @return a `TableInfo` representing the qualified name of `table`
@@ -59,7 +60,7 @@ private[api] trait AstHelpers {
   /**
    * @return a `FieldSymbol` representing the column
    */
-  protected def fieldSym(column: Column[_]): FieldSymbol =
+  protected def fieldSym(column: Rep[_]): FieldSymbol =
     fieldSym(column.toNode) getOrElse sys.error("Invalid column: " + column)
 
   /**
@@ -70,14 +71,14 @@ private[api] trait AstHelpers {
   protected def columnInfo(driver: JdbcDriver, column: FieldSymbol): ColumnInfo = {
     column.tpe match {
       case driver.JdbcType(ti, isOpt) =>
-        val initial = ColumnInfo(column.name, ti.sqlTypeName, !(isOpt || ti.scalaType.nullable), false, false, None)
+        val initial = ColumnInfo(column.name, ti.sqlTypeName(None), !(isOpt || ti.scalaType.nullable), false, false, None)
         column.options.foldLeft(initial) {
-          case (ci, ColumnOption.DBType(s))  => ci.copy(sqlType = s)
-          case (ci, ColumnOption.NotNull)    => ci.copy(notNull = true)
-          case (ci, ColumnOption.Nullable)   => ci.copy(notNull = false)
+          case (ci, SqlProfile.ColumnOption.SqlType(s))  => ci.copy(sqlType = s)
+          case (ci, SqlProfile.ColumnOption.NotNull)    => ci.copy(notNull = true)
+          case (ci, SqlProfile.ColumnOption.Nullable)   => ci.copy(notNull = false)
           case (ci, ColumnOption.AutoInc)    => ci.copy(autoInc = true)
           case (ci, ColumnOption.PrimaryKey) => ci.copy(isPk = true)
-          case (ci, ColumnOption.Default(v)) => ci.copy(default = Some(ti.valueToSQLLiteral(v)))
+          case (ci, RelationalProfile.ColumnOption.Default(v)) => ci.copy(default = Some(ti.valueToSQLLiteral(v)))
           case (ci, _)                       => ci
         }
     }
