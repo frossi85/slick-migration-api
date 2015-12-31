@@ -225,7 +225,7 @@ class H2Dialect extends Dialect[H2Driver] {
 }
 
 trait SimulatedRenameIndex { this: Dialect[_] =>
-  override def renameIndex(old: IndexInfo, newName: String) =
+  abstract override def renameIndex(old: IndexInfo, newName: String): Seq[String] =
     List(dropIndex(old), createIndex(old.copy(name = newName)))
 }
 class SQLiteDialect extends Dialect[SQLiteDriver] with SimulatedRenameIndex {

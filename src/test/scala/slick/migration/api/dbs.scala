@@ -4,15 +4,13 @@ package migration.api
 import java.sql.SQLException
 import java.util.logging.{Level, Logger}
 
-import scala.slick.driver._
-import scala.slick.jdbc.{ResultSetInvoker, StaticQuery => Q}
-import scala.slick.jdbc.GetResult._
-import scala.slick.jdbc.JdbcBackend
-
-import com.typesafe.slick.testkit.util.JdbcTestDB
-import com.typesafe.slick.testkit.util.InternalJdbcTestDB
-import com.typesafe.slick.testkit.util.ExternalJdbcTestDB
-import com.typesafe.slick.testkit.util.TestDB
+import com.typesafe.slick.testkit.util.{ExternalJdbcTestDB, InternalJdbcTestDB, JdbcTestDB, TestDB}
+import slick.jdbc.ResultSetInvoker
+import slick.migration.api._
+import scala.concurrent.Await
+import scala.concurrent.duration.Duration
+import slick.jdbc.JdbcBackend
+import slick.driver._
 
 object Dialects {
   implicit def derby   : Dialect[DerbyDriver   ] = new DerbyDialect
@@ -22,7 +20,6 @@ object Dialects {
   implicit def mysql   : Dialect[MySQLDriver   ] = new MySQLDialect
   implicit def postgres: Dialect[PostgresDriver] = new PostgresDialect
 }
-import Dialects._
 
 trait DialectTestDB { this: JdbcTestDB =>
   type Drv <: JdbcDriver
@@ -36,20 +33,21 @@ class H2TestDB(name: String) extends InternalJdbcTestDB(name) with DialectTestDB
   override lazy val capabilities = driver.capabilities + TestDB.capabilities.plainSql
 }
 
-class H2Test extends DbTest(new H2TestDB("h2mem")) with CompleteDbTest {
-  override def noActionReturns = scala.slick.model.ForeignKeyAction.Restrict
+class H2Test extends DbTest(new H2TestDB("h2mem"))(Dialects.h2) with CompleteDbTest {
+  override def noActionReturns = slick.model.ForeignKeyAction.Restrict
 }
 
-class HsqldbTest extends DbTest(new HsqlDB("hsqldbmem") {
+  /*
+class HsqldbTest extends DbTest(new HsqlDB("hsqldbmem"))(Dialects.hsqldb) {
   val dbName = "test1"
   val url = "jdbc:hsqldb:mem:"+dbName+";user=SA;password=;shutdown=true"
   override def isPersistent = false
 }) with CompleteDbTest {
   override val catalog = None
   override val schema = Some("PUBLIC")
-}
-
-class SqliteTest extends DbTest[SQLiteDriver](new SQLiteTestDB("jdbc:sqlite::memory:", "sqlitemem") {
+}*/
+/*
+class SqliteTest extends DbTest[SQLiteDriver](new SQLiteTestDB("jdbc:sqlite::memory:", "sqlitemem")(Dialects.sqlite) {
   override def isPersistent = false
   override def isShared = false
 }) {
@@ -61,12 +59,16 @@ class SqliteTest extends DbTest[SQLiteDriver](new SQLiteTestDB("jdbc:sqlite::mem
   override def longJdbcType = java.sql.Types.INTEGER
 }
 
-class DerbyTest extends DbTest(new DerbyDB("derbymem") {
+class DerbyTest extends DbTest(new DerbyDB("derbymem")(Dialects.derby) {
   val dbName = "test1"
   val url = "jdbc:derby:memory:"+dbName+";create=true"
   override def cleanUpBefore() = {
     val dropUrl = "jdbc:derby:memory:"+dbName+";drop=true"
-    try { profile.backend.Database.forURL(dropUrl, driver = jdbcDriver) withSession { s:profile.Backend#Session => s.conn } }
+    try {
+      profile.backend.Database.forURL(dropUrl, driver = jdbcDriver) withSession {
+        s:profile.Backend#Session => s.conn
+      }
+    }
     catch { case e: SQLException => }
   }
 }) with CompleteDbTest {
@@ -74,19 +76,21 @@ class DerbyTest extends DbTest(new DerbyDB("derbymem") {
   override val schema = Some("APP")
 }
 
-class MySQLTest extends DbTest(new ExternalJdbcTestDB("mysql") {
+class MySQLTest extends DbTest(new ExternalJdbcTestDB("mysql")(Dialects.mysql) {
   val driver = MySQLDriver
   override lazy val capabilities = driver.capabilities + TestDB.capabilities.plainSql
 }) with CompleteDbTest {
   override def columnDefaultFormat(s: String) = s
 }
 
-class PostgresTest extends DbTest(new ExternalJdbcTestDB("postgres") {
+class PostgresTest extends DbTest(new ExternalJdbcTestDB("postgres")(Dialects.postgres) {
   val driver = PostgresDriver
-  override def getLocalTables(implicit session: profile.Backend#Session) = {
+  /*override def getLocalTables(implicit session: profile.Backend#Session) = {
     val tables = ResultSetInvoker[(String,String,String, String)](_.conn.getMetaData().getTables("", "public", null, null))
     tables.list.filter(_._4.toUpperCase == "TABLE").map(_._3).sorted
-  }
+  }.toVector
+  */
+
   override def getLocalSequences(implicit session: profile.Backend#Session) = {
     val tables = ResultSetInvoker[(String,String,String, String)](_.conn.getMetaData().getTables("", "public", null, null))
     tables.list.filter(_._4.toUpperCase == "SEQUENCE").map(_._3).sorted
@@ -108,10 +112,11 @@ class PostgresTest extends DbTest(new ExternalJdbcTestDB("postgres") {
 abstract class HsqlDB(confName: String) extends InternalJdbcTestDB(confName) {
   val driver = HsqldbDriver
   val jdbcDriver = "org.hsqldb.jdbcDriver"
-  override def getLocalTables(implicit session: profile.Backend#Session): List[String] = {
+  /*override def getLocalTables(implicit session: profile.Backend#Session): List[String] = {
     val tables = ResultSetInvoker[(String,String,String)](_.conn.getMetaData().getTables(null, "PUBLIC", null, null))
     tables.list.map(_._3).sorted
   }
+  */
   override def cleanUpBefore() {
     // Try to turn Hsqldb logging off -- does not work :(
     System.setProperty("hsqldb.reconfig_logging", "false")
@@ -126,13 +131,17 @@ class SQLiteTestDB(dburl: String, confName: String) extends InternalJdbcTestDB(c
   val driver = SQLiteDriver
   val url = dburl
   val jdbcDriver = "org.sqlite.JDBC"
-  override def getLocalTables(implicit session: profile.Backend#Session) =
+
+  import slick.driver.SQLiteDriver.api._
+
+  def getMyLocalTables(implicit session: profile.Backend#Session) =
     super.getLocalTables.filter(s => !s.toLowerCase.contains("sqlite_"))
+
   override def dropUserArtifacts(implicit session: profile.Backend#Session) = {
-    for(t <- getLocalTables)
-      (Q.u+"drop table if exists "+driver.quoteIdentifier(t)).execute
+    for(t <- getMyLocalTables)
+      Await.result(createDB().run(sqlu"drop table if exists ${driver.quoteIdentifier(t)}"), Duration.Inf)
     for(t <- getLocalSequences)
-      (Q.u+"drop sequence if exists "+driver.quoteIdentifier(t)).execute
+      Await.result(createDB().run(sqlu"drop sequence if exists ${driver.quoteIdentifier(t)}"), Duration.Inf)
   }
   override lazy val capabilities = driver.capabilities + TestDB.capabilities.plainSql
 }
@@ -141,25 +150,30 @@ abstract class DerbyDB(confName: String) extends InternalJdbcTestDB(confName) {
   val driver = DerbyDriver
   System.setProperty("derby.stream.error.method", classOf[DerbyDB].getName + ".DEV_NULL")
   val jdbcDriver = "org.apache.derby.jdbc.EmbeddedDriver"
-  override def getLocalTables(implicit session: profile.Backend#Session): List[String] = {
+
+  import slick.driver.DerbyDriver.api._
+
+  def getMyLocalTables(implicit session: profile.Backend#Session): List[String] = {
     val tables = ResultSetInvoker[(String,String,String)](_.conn.getMetaData().getTables(null, "APP", null, null))
     tables.list.map(_._3).sorted
   }
   override def dropUserArtifacts(implicit session: profile.Backend#Session) = {
     try {
-      try { (Q.u+"create table \"__derby_dummy\"(x integer primary key)").execute }
+      val query = sqlu"""create table \"__derby_dummy\"(x integer primary key)"""
+      try { Await.result(createDB().run(query), Duration.Inf) }
       catch { case ignore: SQLException => }
-      val constraints = (Q[(String, String)]+"""
+      val constraints = Await.result(createDB.run(sql"""
             select c.constraintname, t.tablename
             from sys.sysconstraints c, sys.sysschemas s, sys.systables t
             where c.schemaid = s.schemaid and c.tableid = t.tableid and s.schemaname = 'APP'
-                                             """).list
+                                             """.as[(String, String)]), Duration.Inf)
+
       for((c, t) <- constraints if !c.startsWith("SQL"))
-        (Q.u+"alter table "+driver.quoteIdentifier(t)+" drop constraint "+driver.quoteIdentifier(c)).execute
-      for(t <- getLocalTables)
-        (Q.u+"drop table "+driver.quoteIdentifier(t)).execute
+        Await.result(createDB().run(sqlu"alter table ${driver.quoteIdentifier(t)} drop constraint ${driver.quoteIdentifier(c)}"), Duration.Inf)
+      for(t <- getMyLocalTables)
+        Await.result(createDB().run(sqlu"drop table ${driver.quoteIdentifier(t)}"), Duration.Inf)
       for(t <- getLocalSequences)
-        (Q.u+"drop sequence "+driver.quoteIdentifier(t)).execute
+        Await.result(createDB().run(sqlu"drop sequence ${driver.quoteIdentifier(t)}"), Duration.Inf)
     } catch {
       case e: Exception =>
         println("[Caught Exception while dropping user artifacts in Derby: "+e+"]")
@@ -173,3 +187,4 @@ abstract class DerbyDB(confName: String) extends InternalJdbcTestDB(confName) {
 object DerbyDB {
   val DEV_NULL = new java.io.OutputStream { def write(b: Int) {} };
 }
+*/

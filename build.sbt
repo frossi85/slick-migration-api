@@ -1,14 +1,14 @@
-crossScalaVersions := Seq("2.11.6", "2.10.5")
+scalaVersion := "2.11.7"
 
 organization := "io.github.nafg"
 
 name := "slick-migration-api"
 
-libraryDependencies += "com.typesafe.slick" %% "slick"                % "3.0.0"
+libraryDependencies += "com.typesafe.slick" %% "slick"                % "3.1.1"
 
-libraryDependencies += "com.typesafe.slick" %% "slick-testkit"        % "3.0.0"         % "test"
+libraryDependencies += "com.typesafe.slick" %% "slick-testkit"        % "3.1.1"         % "test"
 
-libraryDependencies += "org.scalatest"      %% "scalatest"            % "2.2.0"         % "test"
+libraryDependencies += "org.scalatest"      %% "scalatest"            % "2.2.5"         % "test"
 
 libraryDependencies += "com.h2database"      % "h2"                   % "1.3.170"       % "test"
 

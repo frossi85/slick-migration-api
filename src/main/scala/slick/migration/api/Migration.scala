@@ -86,6 +86,7 @@ class ReversibleMigrationSeq(override val migrations: ReversibleMigration*) exte
  * abstract [[sql]] method.
  */
 trait SqlMigration extends Migration {
+
   /**
    * The SQL statements to run
    */
@@ -95,16 +96,16 @@ trait SqlMigration extends Migration {
    */
   def apply()(implicit session: JdbcBackend#Session) = {
     val sq = sql
-    session.withTransaction {
-      session.withStatement() { st =>
-        for(s <- sq)
-          try st execute s
-          catch {
-            case e: java.sql.SQLException =>
-              throw MigrationException(s"Could not execute sql: '$s'", e)
-          }
+
+    val c = session.createStatement()
+
+    //TODO: Make it work with transactions
+    for(s <- sq)
+      try c.execute(s)
+      catch {
+        case e: java.sql.SQLException =>
+          throw MigrationException(s"Could not execute sql: '$s'", e)
       }
-    }
   }
 }
 
