@@ -4,7 +4,7 @@ package migration.api
 import java.sql.SQLException
 import java.util.logging.{Level, Logger}
 
-import com.typesafe.slick.testkit.util.{ExternalJdbcTestDB, InternalJdbcTestDB, JdbcTestDB, TestDB}
+import com.typesafe.slick.testkit.util._
 import slick.jdbc.ResultSetInvoker
 import slick.migration.api._
 import scala.concurrent.Await
@@ -46,11 +46,14 @@ class HsqldbTest extends DbTest(new HsqlDB("hsqldbmem"))(Dialects.hsqldb) {
   override val catalog = None
   override val schema = Some("PUBLIC")
 }*/
+
 /*
-class SqliteTest extends DbTest[SQLiteDriver](new SQLiteTestDB("jdbc:sqlite::memory:", "sqlitemem")(Dialects.sqlite) {
-  override def isPersistent = false
-  override def isShared = false
-}) {
+class SqliteTest extends DbTest[SQLiteDriver](
+  new SQLiteTestDB("jdbc:sqlite::memory:", "sqlitemem") {
+    override def isPersistent = false
+    override def isShared = false
+  }
+)(Dialects.sqlite) {
   override def getTables(implicit session: JdbcBackend#Session) =
     super.getTables.filterNot(t =>
       t.name.name == "sqlite_sequence" ||
@@ -58,24 +61,26 @@ class SqliteTest extends DbTest[SQLiteDriver](new SQLiteTestDB("jdbc:sqlite::mem
     )
   override def longJdbcType = java.sql.Types.INTEGER
 }
+*/
 
-class DerbyTest extends DbTest(new DerbyDB("derbymem")(Dialects.derby) {
+
+class DerbyTest extends DbTest(new DerbyDB("derbymem") {
   val dbName = "test1"
   val url = "jdbc:derby:memory:"+dbName+";create=true"
   override def cleanUpBefore() = {
     val dropUrl = "jdbc:derby:memory:"+dbName+";drop=true"
     try {
-      profile.backend.Database.forURL(dropUrl, driver = jdbcDriver) withSession {
-        s:profile.Backend#Session => s.conn
-      }
+      val db = profile.backend.Database.forURL(dropUrl, driver = jdbcDriver)
+      db.createSession().conn
     }
     catch { case e: SQLException => }
   }
-}) with CompleteDbTest {
+})(Dialects.derby) with CompleteDbTest {
   override val catalog = None
   override val schema = Some("APP")
 }
 
+/*
 class MySQLTest extends DbTest(new ExternalJdbcTestDB("mysql")(Dialects.mysql) {
   val driver = MySQLDriver
   override lazy val capabilities = driver.capabilities + TestDB.capabilities.plainSql
