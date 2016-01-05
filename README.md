@@ -23,3 +23,5 @@ withSession { implicit session: Session =>
   migrate()
 }
 ````
+
+Note: Some test in MySql could fail, please see: https://www.farbeyondcode.com/Solution-for-MariaDB-Field--xxx--doesn-t-have-a-default-value-5-2720.html

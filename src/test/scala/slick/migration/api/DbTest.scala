@@ -1,14 +1,14 @@
 package scala.slick
 package migration.api
 
-import java.sql.Types
+import java.sql.{SQLException, Types}
 import com.typesafe.slick.testkit.util.JdbcTestDB
 import org.scalatest.{BeforeAndAfterAll, FunSuite, Inside, Matchers}
 import slick.driver.JdbcDriver
 import slick.jdbc.JdbcBackend
 import slick.jdbc.meta.{MIndexInfo, MPrimaryKey, MQName, MTable}
 import slick.migration.api.{Dialect, TableMigration}
-import scala.concurrent.Await
+import scala.concurrent.{Future, Await}
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration.Duration
 
@@ -36,11 +36,15 @@ abstract class DbTest[D <: JdbcDriver](val tdb: JdbcTestDB { val driver: D })(im
 
   def noActionReturns: ForeignKeyAction = ForeignKeyAction.NoAction
 
-  def getTables(implicit session: JdbcBackend#Session): List[MTable] = Await.result(db.run(MTable.getTables(catalog, schema, None, None).map(x => x.toList)), Duration.Inf)
+  def getTables(implicit session: JdbcBackend#Session): List[MTable] = executeQuerySync(MTable.getTables(catalog, schema, None, None).map(x => x.toList))
   def getTable(name: String)(implicit session: JdbcBackend#Session) =
     getTables.find(_.name.name == name)
 
   def longJdbcType = Types.BIGINT
+
+  def executeQuerySync[R](a : slick.dbio.DBIOAction[R, slick.dbio.NoStream, scala.Nothing]) : R = {
+    Await.result(db.run(a), Duration.Inf)
+  }
 
   /**
    * How JDBC metadata returns a column's default string value
@@ -48,9 +52,9 @@ abstract class DbTest[D <: JdbcDriver](val tdb: JdbcTestDB { val driver: D })(im
   def columnDefaultFormat(s: String) = s"'$s'"
 
   test("create, drop") {
-    class Table1(tag: Tag) extends Table[(Long, String)](tag, "table1") {
+    class Table1(tag: Tag) extends Table[(Long, Option[String])](tag, "table1") {
       def id = column[Long]("id", O.AutoInc, O.PrimaryKey)
-      def col1 = column[String]("col1", O.Default("abc"))
+      def col1 = column[Option[String]]("col1", O.SqlType("VARCHAR(20)"), O.Default(Some("abc")))
       def * = (id, col1)
     }
     val table1 = TableQuery[Table1]
@@ -65,12 +69,14 @@ abstract class DbTest[D <: JdbcDriver](val tdb: JdbcTestDB { val driver: D })(im
     try {
       val after = getTables
       val tableName = table1.baseTableRow.tableName
+
+
       inside(after filterNot before.contains) {
         case (table @ MTable(MQName(_, _, `tableName`), "TABLE", _, _, _, _)) :: Nil =>
-          val cols = Await.result(db.run(table.getColumns.map(x => x.toList)), Duration.Inf)
+          val cols = executeQuerySync(table.getColumns.map(x => x.toList))
           cols.map(col => (col.name, col.sqlType, col.nullable)) should equal (List(
             ("id", longJdbcType, Some(false)),
-            ("col1", Types.VARCHAR, Some(false))
+            ("col1", Types.VARCHAR, Some(true))
           ))
           val autoinc: Map[String, Boolean] = cols.flatMap(col => col.isAutoInc.map(col.name -> _)).toMap
           autoinc.get("id") foreach (_ should equal (true))
@@ -78,7 +84,7 @@ abstract class DbTest[D <: JdbcDriver](val tdb: JdbcTestDB { val driver: D })(im
           cols.find(_.name == "col1").flatMap(_.columnDef).foreach(_ should equal (columnDefaultFormat("abc")))
       }
 
-      //tm.create.reverse should equal (tm.drop)
+      tm.create.reverse should equal (tm.drop)
 
     } finally
       tm.drop.apply()
@@ -89,7 +95,7 @@ abstract class DbTest[D <: JdbcDriver](val tdb: JdbcTestDB { val driver: D })(im
   test("addColumns") {
     class Table5(tag: Tag) extends Table[(Long, String, Option[Int])](tag, "table5") {
       def col1 = column[Long]("col1")
-      def col2 = column[String]("col2", O.Default(""))
+      def col2 = column[String]("col2", O.SqlType("VARCHAR(20)"), O.Default(""))
       def col3 = column[Option[Int]]("col3")
       def * = (col1, col2, col3)
     }
@@ -98,10 +104,8 @@ abstract class DbTest[D <: JdbcDriver](val tdb: JdbcTestDB { val driver: D })(im
     val tm = TableMigration(table5)
     tm.create.addColumns(_.col1)()
 
+    def columnsCount = getTable("table5").map(x => executeQuerySync(x.getColumns.map(x => x.toList.length)))
 
-
-
-    def columnsCount = getTable("table5").map(x => Await.result(db.run(x.getColumns.map(x => x.toList)), Duration.Inf).length)
     //def columnsCount = getTable("table5").map(_.getColumns.list.length)
 
     try {
@@ -129,8 +133,7 @@ abstract class DbTest[D <: JdbcDriver](val tdb: JdbcTestDB { val driver: D })(im
     }
     val table4 = TableQuery[Table4]
 
-    def indexList = getTable("table4").map(x => Await.result(db.run(x.getIndexInfo().map(x => x.toList)), Duration.Inf)) getOrElse Nil
-    //def indexList = getTable("table4").map(x => x.getIndexInfo().list) getOrElse Nil
+    def indexList = getTable("table4").map(x => executeQuerySync(x.getIndexInfo().map(x => x.toList))) getOrElse Nil
 
     def indexes = indexList
       .groupBy(i => (i.indexName, !i.nonUnique))
@@ -175,7 +178,8 @@ abstract class DbTest[D <: JdbcDriver](val tdb: JdbcTestDB { val driver: D })(im
     tm.create.addColumns(_.col1).addIndexes(_.index1)()
 
     def tables = getTables.map(_.name.name).filterNot(_ == "oldIndexName")
-    def indexes = getTables.flatMap(x => Await.result(db.run(x.getIndexInfo().map(x => x.toList)), Duration.Inf).flatMap(_.indexName))
+
+    def indexes = getTables.flatMap(x => executeQuerySync(x.getIndexInfo().map(x => x.toList)).flatMap(_.indexName))
 
     tables should equal (List("oldname"))
     indexes should equal (List("oldIndexName"))
@@ -198,7 +202,7 @@ trait CompleteDbTest { this: DbTest[_ <: JdbcDriver] =>
   import driver.api._
 
   test("addPrimaryKeys, dropPrimaryKeys") {
-    def pkList = getTable("table8").map(x => Await.result(db.run(x.getPrimaryKeys.map(x => x.toList)), Duration.Inf)) getOrElse Nil
+    def pkList = getTable("table8").map(x => executeQuerySync(x.getPrimaryKeys.map(x => x.toList))) getOrElse Nil
     def pks = pkList
       .groupBy(_.pkName)
       .mapValues {
@@ -207,7 +211,7 @@ trait CompleteDbTest { this: DbTest[_ <: JdbcDriver] =>
 
     class Table8(tag: Tag) extends Table[(Long, String)](tag, "table8") {
       def id = column[Long]("id")
-      def stringId = column[String]("stringId")
+      def stringId = column[String]("stringId", O.SqlType("VARCHAR(20)"), O.Default(""))
       def * = (id, stringId)
       def pk = primaryKey("PRIMARY", (id, stringId))  // note mysql will always use the name "PRIMARY" anyway
     }
@@ -259,10 +263,10 @@ trait CompleteDbTest { this: DbTest[_ <: JdbcDriver] =>
       def fks = getTables.to[Set] map { t =>
         (
           t.name.name,
-          Await.result(db.run(t.getExportedKeys.map(x => x.toList)), Duration.Inf) map { fk =>
+          executeQuerySync(t.getExportedKeys.map(x => x.toList)) map { fk =>
             (fk.pkTable.name, fk.pkColumn, fk.fkTable.name, fk.fkColumn, fk.updateRule, fk.deleteRule, fk.fkName)
           }
-        )
+          )
       }
 
       val before = fks
@@ -282,7 +286,7 @@ trait CompleteDbTest { this: DbTest[_ <: JdbcDriver] =>
 
       val dropForeignKey = createForeignKey.reverse
 
-      dropForeignKey.data.foreignKeysDrop.toList should equal (table2.baseTableRow.fk.fks.toList)
+      dropForeignKey.getData.foreignKeysDrop.toList should equal (table2.baseTableRow.fk.fks.toList)
       dropForeignKey should equal (tm2.dropForeignKeys(_.fk))
 
       dropForeignKey()
@@ -297,7 +301,7 @@ trait CompleteDbTest { this: DbTest[_ <: JdbcDriver] =>
   test("dropColumns") {
     class Table11(tag: Tag) extends Table[(Long, String)](tag, "table11") {
       def col1 = column[Long]("col1")
-      def col2 = column[String]("col2", O.Default(""))
+      def col2 = column[String]("col2", O.SqlType("VARCHAR(20)"), O.Default(""))
       def * = (col1, col2)
     }
     val table11 = TableQuery[Table11]
@@ -305,7 +309,7 @@ trait CompleteDbTest { this: DbTest[_ <: JdbcDriver] =>
     val tm = TableMigration(table11)
     tm.create.addColumns(_.col1, _.col2)()
 
-    def columnsCount = getTable("table11").map(x => Await.result(db.run(x.getColumns.map(x => x.toList)), Duration.Inf).length)
+    def columnsCount = getTable("table11").map(x => executeQuerySync(x.getColumns.map(x => x.toList)).length)
 
     try {
       columnsCount should equal (Some(2))
@@ -322,7 +326,7 @@ trait CompleteDbTest { this: DbTest[_ <: JdbcDriver] =>
   test("alterColumnTypes") {
     class Table6(tag: Tag) extends Table[String](tag, "table6") {
       def tmpOldId = column[java.sql.Date]("id")
-      def id = column[String]("id", O.Default(""))
+      def id = column[String]("id", O.SqlType("VARCHAR(20)"))
       def * = id
     }
     val table6 = TableQuery[Table6]
@@ -330,12 +334,12 @@ trait CompleteDbTest { this: DbTest[_ <: JdbcDriver] =>
     val tm = TableMigration(table6)
     tm.create.addColumns(_.tmpOldId)()
 
-    def columnTypes = getTable("table6").map(x => Await.result(db.run(x.getColumns.map(x => x.toList)), Duration.Inf).map(_.sqlType)) getOrElse Nil
+    def columnTypes = getTable("table6").map(x => executeQuerySync(x.getColumns.map(x => x.toList)).map(_.sqlType)) getOrElse Nil
 
     try {
-      columnTypes.toList should equal (List(Types.DATE))
+      columnTypes should equal (List(Types.DATE))
       tm.alterColumnTypes(_.id)()
-      columnTypes.toList should equal (List(Types.VARCHAR))
+      columnTypes should equal (List(Types.VARCHAR))
     } finally
       tm.drop.apply()
   }
@@ -351,40 +355,15 @@ trait CompleteDbTest { this: DbTest[_ <: JdbcDriver] =>
     val tm = TableMigration(table9)
     tm.create.addColumns(_.tmpOldId)()
 
-    def columns = getTable("table9").map(x => Await.result(db.run(x.getColumns.map(x => x.toList)), Duration.Inf).map(_.columnDef)) getOrElse Nil
+    def columns = getTable("table9").map(x => executeQuerySync(x.getColumns.map(x => x.toList)).map(_.columnDef)) getOrElse Nil
 
     try {
-      columns.toList should equal (List((None)))
+      columns should equal (List((None)))
       tm.alterColumnDefaults(_.id)()
-      columns.toList should equal (List((Some(columnDefaultFormat("abc")))))
+      columns should equal (List((Some(columnDefaultFormat("abc")))))
     } finally
       tm.drop.apply()
   }
-
-  /*
-  test("alterColumnNulls") {
-    class Table10(tag: Tag) extends Table[String](tag, "table10") {
-      def tmpOldId = column[Option[String]]("id")
-      def id = column[String]("id")
-      def * = id
-    }
-    val table10 = TableQuery[Table10]
-
-    val tm = TableMigration(table10)
-    tm.create.addColumns(_.tmpOldId)()
-
-    try {
-      table10.map(_.tmpOldId) += (null: String)
-      table10.delete
-
-      tm.alterColumnNulls(_.id)()
-
-      intercept[SQLException] {
-        table10.map(_.id).insert(null: String)
-      }
-    } finally
-      tm.drop.apply()
-  }*/
 
   test("renameColumn") {
     class Table12(tag: Tag) extends Table[Long](tag, "table12") {
@@ -393,7 +372,7 @@ trait CompleteDbTest { this: DbTest[_ <: JdbcDriver] =>
     }
     val table12 = TableQuery[Table12]
 
-    def columns = getTable("table12").toList.flatMap(x => Await.result(db.run(x.getColumns.map(x => x.toList)), Duration.Inf).map(_.name))
+    def columns = getTable("table12").toList.flatMap(x => executeQuerySync(x.getColumns.map(x => x.toList)).map(_.name))
 
     val tm = TableMigration(table12)
     tm.create.addColumns(_.col1)()

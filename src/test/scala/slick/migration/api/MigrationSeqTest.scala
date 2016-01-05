@@ -1,12 +1,11 @@
 package scala.slick
 package migration.api
 
-import org.scalatest.matchers.ShouldMatchers
-import org.scalatest.FunSuite
+import org.scalatest.{FunSuite, Matchers}
 import slick.driver.H2Driver
-import slick.migration.api.{ReversibleMigrationSeq, ReversibleMigration, MigrationSeq, Migration}
+import slick.migration.api.{Migration, MigrationSeq, ReversibleMigration, ReversibleMigrationSeq}
 
-class MigrationSeqTest extends FunSuite with ShouldMatchers {
+class MigrationSeqTest extends FunSuite with Matchers {
   test("& returns the right type and doesn't keep nesting") {
     val m = new Migration {
       def apply()(implicit s: H2Driver.api.Session) = ()

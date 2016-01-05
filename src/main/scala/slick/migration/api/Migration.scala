@@ -1,8 +1,12 @@
 package slick
 package migration.api
 
+import slick.backend.DatabaseConfig
+import slick.driver.JdbcProfile
 import slick.jdbc.JdbcBackend
 
+import scala.concurrent.Await
+import scala.concurrent.duration.Duration
 /**
  * The base of the migration type hierarchy.
  * Can contain any operation that can use an implicit `Session`.
@@ -86,7 +90,6 @@ class ReversibleMigrationSeq(override val migrations: ReversibleMigration*) exte
  * abstract [[sql]] method.
  */
 trait SqlMigration extends Migration {
-
   /**
    * The SQL statements to run
    */
@@ -96,16 +99,16 @@ trait SqlMigration extends Migration {
    */
   def apply()(implicit session: JdbcBackend#Session) = {
     val sq = sql
-
-    val c = session.createStatement()
-
-    //TODO: Make it work with transactions
-    for(s <- sq)
-      try c.execute(s)
-      catch {
-        case e: java.sql.SQLException =>
-          throw MigrationException(s"Could not execute sql: '$s'", e)
+    //session.withTransaction {
+      session.withStatement() { st =>
+        for(s <- sq)
+          try st execute s
+          catch {
+            case e: java.sql.SQLException =>
+              throw MigrationException(s"Could not execute sql: '$s'", e)
+          }
       }
+    //}
   }
 }
 

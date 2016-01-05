@@ -1,4 +1,4 @@
-scalaVersion := "2.11.7"
+crossScalaVersions := Seq("2.11.7", "2.10.5")
 
 organization := "io.github.nafg"
 
@@ -8,11 +8,11 @@ libraryDependencies += "com.typesafe.slick" %% "slick"                % "3.1.1"
 
 libraryDependencies += "com.typesafe.slick" %% "slick-testkit"        % "3.1.1"         % "test"
 
-libraryDependencies += "org.scalatest"      %% "scalatest"            % "2.2.5"         % "test"
+libraryDependencies += "org.scalatest"      %% "scalatest"            % "2.2.0"         % "test"
 
 libraryDependencies += "com.h2database"      % "h2"                   % "1.3.170"       % "test"
 
-libraryDependencies += "org.xerial"          % "sqlite-jdbc"          % "3.7.2"         % "test"
+libraryDependencies += "org.xerial"          % "sqlite-jdbc"          % "3.8.11.2"      % "test"
 
 libraryDependencies += "org.apache.derby"    % "derby"                % "10.10.1.1"     % "test"
 
