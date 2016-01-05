@@ -89,6 +89,7 @@ abstract class DbTest[D <: JdbcDriver](val tdb: JdbcTestDB { val driver: D })(im
     } finally
       tm.drop.apply()
 
+
     getTables should equal (before)
   }
 
@@ -166,7 +167,9 @@ abstract class DbTest[D <: JdbcDriver](val tdb: JdbcTestDB { val driver: D })(im
   test("rename, renameIndex") {
     class Table7Base(tag: Tag, name: String) extends Table[Long](tag, name) {
       def col1 = column[Long]("col1")
+
       def * = col1
+
       val index1 = index("oldIndexName", col1)
     }
     class OldName(tag: Tag) extends Table7Base(tag, "oldname")
@@ -181,24 +184,25 @@ abstract class DbTest[D <: JdbcDriver](val tdb: JdbcTestDB { val driver: D })(im
 
     def indexes = getTables.flatMap(x => executeQuerySync(x.getIndexInfo().map(x => x.toList)).flatMap(_.indexName))
 
-    tables should equal (List("oldname"))
-    indexes should equal (List("oldIndexName"))
+    tables should equal(List("oldname"))
+    indexes should equal(List("oldIndexName"))
 
     tm.rename("table7")()
-    tables should equal (List("table7"))
+    tables should equal(List("table7"))
 
     val tm7 = TableMigration(table7)
     try {
       tm7.renameIndex(_.index1, "index1")()
-      indexes should equal (List("index1"))
+      indexes should equal(List("index1"))
     } finally
       tm7.drop.apply()
 
-    tm.rename("table7").reverse should equal (tm7.rename("oldname"))
+    tm.rename("table7").reverse should equal(tm7.rename("oldname"))
   }
 }
 
 trait CompleteDbTest { this: DbTest[_ <: JdbcDriver] =>
+
   import driver.api._
 
   test("addPrimaryKeys, dropPrimaryKeys") {
@@ -326,7 +330,7 @@ trait CompleteDbTest { this: DbTest[_ <: JdbcDriver] =>
   test("alterColumnTypes") {
     class Table6(tag: Tag) extends Table[String](tag, "table6") {
       def tmpOldId = column[java.sql.Date]("id")
-      def id = column[String]("id", O.SqlType("VARCHAR(20)"))
+      def id = column[String]("id", O.SqlType("VARCHAR(20)"), O.Default("abc"))
       def * = id
     }
     val table6 = TableQuery[Table6]
@@ -346,8 +350,8 @@ trait CompleteDbTest { this: DbTest[_ <: JdbcDriver] =>
 
   test("alterColumnDefaults") {
     class Table9(tag: Tag) extends Table[String](tag, "table9") {
-      def tmpOldId = column[String]("id")
-      def id = column[String]("id", O.Default("abc"))
+      def tmpOldId = column[Option[String]]("id", O.SqlType("VARCHAR(25)"))
+      def id = column[String]("id", O.SqlType("VARCHAR(25)"), O.Default("abc"))
       def * = id
     }
     val table9 = TableQuery[Table9]

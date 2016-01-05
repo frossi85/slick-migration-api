@@ -2,9 +2,9 @@ package slick
 package migration.api
 
 import slick.backend.DatabaseConfig
+import slick.dbio.DBIOAction
 import slick.driver.JdbcProfile
 import slick.jdbc.JdbcBackend
-
 import scala.concurrent.Await
 import scala.concurrent.duration.Duration
 /**
@@ -99,16 +99,19 @@ trait SqlMigration extends Migration {
    */
   def apply()(implicit session: JdbcBackend#Session) = {
     val sq = sql
+
     //session.withTransaction {
-      session.withStatement() { st =>
+     session.withStatement() { st =>
         for(s <- sq)
-          try st execute s
-          catch {
+          //try
+            st execute s
+          /*catch {
             case e: java.sql.SQLException =>
               throw MigrationException(s"Could not execute sql: '$s'", e)
-          }
+          }*/
       }
     //}
+
   }
 }
 

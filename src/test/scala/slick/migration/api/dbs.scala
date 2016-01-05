@@ -51,11 +51,11 @@ class HsqldbTest extends DbTest(new HsqlDB("hsqldbmem") {
   override val schema = Some("PUBLIC")
 }
 
-class SqliteTest extends DbTest[SQLiteDriver](new SQLiteTestDB("jdbc:sqlite::memory:", "sqlitemem") {
+class SqliteTest extends DbTest[SQLiteDriver](new SQLiteTestDB("jdbc:sqlite::memory:test123", "sqlitemem") {
   override def isPersistent = false
   override def isShared = false
 }) {
-  override def getTables(implicit session: JdbcBackend#Session) =
+ override def getTables(implicit session: JdbcBackend#Session) =
     super.getTables.filterNot(t =>
       t.name.name == "sqlite_sequence" ||
       t.name.name.startsWith("sqlite_autoindex_")
@@ -79,6 +79,7 @@ class DerbyTest extends DbTest(new DerbyDB("derbymem") {
   override val schema = Some("APP")
 }
 
+
 class MySQLTest extends DbTest(new ExternalJdbcTestDB("mysql") {
   val driver = MySQLDriver
   override lazy val capabilities = driver.capabilities + TestDB.capabilities.plainSql
@@ -101,7 +102,6 @@ class PostgresTest extends DbTest(new ExternalJdbcTestDB("postgres") {
   override def columnDefaultFormat(s: String) = s"'$s'::character varying"
 }
 
-
 // copied from slick-testkit
 
 abstract class HsqlDB(confName: String) extends InternalJdbcTestDB(confName) {
@@ -119,16 +119,12 @@ abstract class HsqlDB(confName: String) extends InternalJdbcTestDB(confName) {
   override lazy val capabilities = driver.capabilities + TestDB.capabilities.plainSql
 }
 
-
 class SQLiteTestDB(dburl: String, confName: String) extends InternalJdbcTestDB(confName) {
   val driver = SQLiteDriver
   val url = dburl
   val jdbcDriver = "org.sqlite.JDBC"
 
   import slick.driver.SQLiteDriver.api._
-
-  /*def getLocalTables(implicit session: profile.Backend#Session) =
-    super.getLocalTables.filter(s => !s.toLowerCase.contains("sqlite_"))*/
 
   override def dropUserArtifacts(implicit session: profile.Backend#Session) = {
     for(t <- getLocalTables)
@@ -178,7 +174,6 @@ abstract class DerbyDB(confName: String) extends InternalJdbcTestDB(confName) {
 
   override lazy val capabilities = driver.capabilities + TestDB.capabilities.plainSql
 }
-
 
 object DerbyDB {
   val DEV_NULL = new java.io.OutputStream { def write(b: Int) {} };
